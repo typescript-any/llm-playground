@@ -13,6 +13,7 @@ import (
 	"github.com/typescript-any/llm-playground/internal/config"
 	"github.com/typescript-any/llm-playground/internal/db"
 	"github.com/typescript-any/llm-playground/internal/handler"
+	"github.com/typescript-any/llm-playground/internal/llm"
 	"github.com/typescript-any/llm-playground/internal/middleware"
 	"github.com/typescript-any/llm-playground/internal/repository"
 	"github.com/typescript-any/llm-playground/internal/routes"
@@ -26,9 +27,16 @@ func SetupApp(cfg *config.Config) (*fiber.App, *pgxpool.Pool) {
 		log.Fatal("❌ DB pool is nil! Did you call db.Init?")
 	}
 
+	openAiClient := llm.NewClient()
+
 	convRepo := repository.NewConversationRepo(pool)
+	messageRepo := repository.NewMessageRepo(pool)
+
 	convService := service.NewConversationService(convRepo)
+	messageService := service.NewMessageService(messageRepo, openAiClient)
+
 	convHandler := handler.NewConversationHandler(convService)
+	messageHandler := handler.NewMessageHandler(messageService)
 
 	app := fiber.New(fiber.Config{
 		ErrorHandler: middleware.ErrorHandler,
@@ -36,7 +44,7 @@ func SetupApp(cfg *config.Config) (*fiber.App, *pgxpool.Pool) {
 	// app.Use(middleware.RequestResponseLogger)
 
 	app.Get("/healthz", func(c *fiber.Ctx) error { return c.SendString("ok") })
-	routes.RegisterConversationRoutes(app, convHandler)
+	routes.RegisterConversationRoutes(app, convHandler, messageHandler)
 
 	return app, pool
 }
