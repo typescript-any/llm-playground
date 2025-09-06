@@ -43,7 +43,7 @@ func (h *ConversationHandler) CreateConversation(c *fiber.Ctx) error {
 
 	conv, err := h.service.CreateConversation(ctx, userID, body.Title)
 	if err == repository.ErrInternal {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "could not create conversation"})
+		return fiber.NewError(fiber.StatusInternalServerError, "Could not create conversation")
 	}
 	return c.Status(http.StatusCreated).JSON(conv)
 }
@@ -63,7 +63,7 @@ func (h *ConversationHandler) ListConversations(c *fiber.Ctx) error {
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "no conversations found"})
 	}
 	if err == repository.ErrInternal {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "could not fetch conversations"})
+		return fiber.NewError(fiber.ErrInternalServerError.Code, "could not get conversation")
 	}
 
 	return c.JSON(conversations)

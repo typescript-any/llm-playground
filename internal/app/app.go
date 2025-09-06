@@ -13,6 +13,7 @@ import (
 	"github.com/typescript-any/llm-playground/internal/config"
 	"github.com/typescript-any/llm-playground/internal/db"
 	"github.com/typescript-any/llm-playground/internal/handler"
+	"github.com/typescript-any/llm-playground/internal/middleware"
 	"github.com/typescript-any/llm-playground/internal/repository"
 	"github.com/typescript-any/llm-playground/internal/routes"
 	service "github.com/typescript-any/llm-playground/internal/services"
@@ -29,7 +30,11 @@ func SetupApp(cfg *config.Config) (*fiber.App, *pgxpool.Pool) {
 	convService := service.NewConversationService(convRepo)
 	convHandler := handler.NewConversationHandler(convService)
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		ErrorHandler: middleware.ErrorHandler,
+	})
+	// app.Use(middleware.RequestResponseLogger)
+
 	app.Get("/healthz", func(c *fiber.Ctx) error { return c.SendString("ok") })
 	routes.RegisterConversationRoutes(app, convHandler)
 
