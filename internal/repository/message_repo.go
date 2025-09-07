@@ -78,3 +78,33 @@ func (r *MessageRepo) GetMessages(ctx context.Context, convID uuid.UUID) ([]mode
 
 	return messages, nil
 }
+
+// Get messages by conversation
+func (r *MessageRepo) GetMessagesByConversation(ctx context.Context, convID uuid.UUID, limit int) ([]models.Message, error) {
+	query := `SELECT id, conversation_id, role, content, created_at
+			  FROM messages
+			  WHERE conversation_id = $1
+			  ORDER BY created_at ASC
+			  LIMIT $2 
+			  `
+	rows, err := r.db.Query(ctx, query, convID, limit)
+	if err != nil {
+		return nil, ErrInternal
+	}
+	defer rows.Close()
+
+	var messages []models.Message
+	for rows.Next() {
+		var message models.Message
+		if err := rows.Scan(&message.ID, &message.ConversationID, &message.Role, &message.Content, &message.CreatedAt); err != nil {
+			return nil, ErrInternal
+		}
+		messages = append(messages, message)
+	}
+
+	if len(messages) == 0 {
+		return nil, ErrNotFound
+	}
+	return messages, nil
+
+}

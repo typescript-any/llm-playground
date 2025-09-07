@@ -15,4 +15,5 @@ func RegisterConversationRoutes(app *fiber.App, convHandler *handler.Conversatio
 
 	// Messages inside conversation
 	convGroup.Post("/:id/messages", messageHandler.SendMessage)
+	convGroup.Post("/:id/messages/stream", messageHandler.StreamMessage)
 }
