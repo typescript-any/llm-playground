@@ -3,7 +3,9 @@ package handler
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -13,6 +15,27 @@ import (
 
 type MessageHandler struct {
 	service *service.MessageService
+}
+
+type MessageStart struct {
+	Type      string `json:"type"`
+	Model     string `json:"model"`
+	ConvID    string `json:"conversation_id"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type ContentDelta struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+	Delta struct {
+		Type  string `json:"type"`
+		Value string `json:"value"`
+	} `json:"delta"`
+}
+
+type MessageComplete struct {
+	Type       string `json:"type"`
+	StopReason string `json:"stop_reason"`
 }
 
 func NewMessageHandler(s *service.MessageService) *MessageHandler {
@@ -43,6 +66,7 @@ func (h *MessageHandler) SendMessage(c *fiber.Ctx) error {
 	return c.JSON(reply)
 }
 
+// StreamMessage handles streaming AI responses via Server-Sent Events (SSE)
 func (h *MessageHandler) StreamMessage(c *fiber.Ctx) error {
 	convID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -69,6 +93,16 @@ func (h *MessageHandler) StreamMessage(c *fiber.Ctx) error {
 	c.Set("Access-Control-Allow-Origin", "*") // Add CORS if needed
 
 	c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
+		// 1. Send start event
+		messageStart := MessageStart{
+			Type:      "message_start",
+			Model:     req.Model,
+			ConvID:    convID.String(),
+			CreatedAt: time.Now().Unix(),
+		}
+		h.sendEvent(w, "message_start", messageStart)
+
+		// 2. Stream content deltas
 		// Use the accumulator returned from service instead of creating new one
 		for stream.Next() {
 			chunk := stream.Current()
@@ -77,15 +111,20 @@ func (h *MessageHandler) StreamMessage(c *fiber.Ctx) error {
 			if len(chunk.Choices) > 0 {
 				delta := chunk.Choices[0].Delta.Content
 				if delta != "" {
-					fmt.Fprintf(w, "data: %s\n\n", delta)
-					w.Flush()
+					// Send as JSON structured event
+					contentDelta := ContentDelta{
+						Type:  "content_block_delta",
+						Index: 0, // Assuming single message for now
+					}
+					contentDelta.Delta.Type = "text_delta"
+					contentDelta.Delta.Value = delta
+					h.sendEvent(w, "content_block_delta", contentDelta)
 				}
 			}
 		}
 
 		if stream.Err() != nil {
-			fmt.Fprintf(w, "event: error\ndata: %v\n\n", stream.Err())
-			w.Flush()
+			h.sendErrorEvent(w, stream.Err().Error())
 			return
 		}
 
@@ -99,9 +138,31 @@ func (h *MessageHandler) StreamMessage(c *fiber.Ctx) error {
 			}
 		}
 
-		fmt.Fprintf(w, "event: done\ndata: [DONE]\n\n")
-		w.Flush()
+		// 3. Send completion event
+		messageComplete := MessageComplete{
+			Type:       "message_complete",
+			StopReason: "end_turn",
+		}
+		h.sendEvent(w, "message_complete", messageComplete)
 	}))
 
 	return nil
+}
+
+// Helper function to send structured events
+func (h *MessageHandler) sendEvent(w *bufio.Writer, eventType string, data interface{}) {
+	jsonData, _ := json.Marshal(data)
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, string(jsonData))
+	w.Flush()
+}
+
+// Helper function to send error events
+func (h *MessageHandler) sendErrorEvent(w *bufio.Writer, errorMsg string) {
+	errorData := map[string]interface{}{
+		"type":  "error",
+		"error": errorMsg,
+	}
+	jsonData, _ := json.Marshal(errorData)
+	fmt.Fprintf(w, "event: error\ndata: %s\n\n", string(jsonData))
+	w.Flush()
 }

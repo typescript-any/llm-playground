@@ -108,11 +108,16 @@ func (s *MessageService) StreamMessage(ctx context.Context, convID uuid.UUID, co
 		}
 	}
 
-	// 4. Create streaming request
+	// 4. Add the current user message to the end
+	messages = append(messages, openai.UserMessage(content))
+
+	// 5. Create streaming request
 	stream := s.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-		Model:     model,
-		Messages:  messages,
-		MaxTokens: openai.Int(500),
+		Model:       defaultModel(model),
+		Messages:    messages,
+		MaxTokens:   openai.Int(500),
+		Temperature: openai.Float(0.7),
+		TopP:        openai.Float(1.0),
 	})
 	acc := openai.ChatCompletionAccumulator{}
 

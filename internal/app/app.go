@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/typescript-any/llm-playground/internal/config"
 	"github.com/typescript-any/llm-playground/internal/db"
@@ -42,6 +43,11 @@ func SetupApp(cfg *config.Config) (*fiber.App, *pgxpool.Pool) {
 		ErrorHandler: middleware.ErrorHandler,
 	})
 	// app.Use(middleware.RequestResponseLogger)
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*", // or "http://localhost:3000" for your frontend
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+	}))
 
 	app.Get("/healthz", func(c *fiber.Ctx) error { return c.SendString("ok") })
 	routes.RegisterConversationRoutes(app, convHandler, messageHandler)
