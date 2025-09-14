@@ -37,13 +37,13 @@ func (r *ConversationRepo) CreateConversation(ctx context.Context, userID uuid.U
 	return conv, nil
 }
 
-func (r *ConversationRepo) GetConversationsByUser(ctx context.Context, userID uuid.UUID) ([]models.Conversation, error) {
+func (r *ConversationRepo) GetConversationsByUser(ctx context.Context, userID uuid.UUID, offset, limit int) ([]models.Conversation, error) {
 	query := `SELECT id, user_id, title, created_at
 			  FROM conversations
 			  WHERE user_id = $1
-			  ORDER BY created_at DESC`
+			  ORDER BY created_at DESC LIMIT $2 OFFSET $3`
 
-	rows, err := r.db.Query(ctx, query, userID)
+	rows, err := r.db.Query(ctx, query, userID, limit, offset)
 	if err != nil {
 		return nil, ErrInternal
 	}

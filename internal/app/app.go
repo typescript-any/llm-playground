@@ -36,7 +36,7 @@ func SetupApp(cfg *config.Config) (*fiber.App, *pgxpool.Pool) {
 	convService := service.NewConversationService(convRepo)
 	messageService := service.NewMessageService(messageRepo, openAiClient)
 
-	convHandler := handler.NewConversationHandler(convService)
+	convHandler := handler.NewConversationHandler(convService, messageService)
 	messageHandler := handler.NewMessageHandler(messageService)
 
 	app := fiber.New(fiber.Config{

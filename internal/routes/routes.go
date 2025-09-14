@@ -12,6 +12,7 @@ func RegisterConversationRoutes(app *fiber.App, convHandler *handler.Conversatio
 	// Conversations
 	convGroup.Post("/", convHandler.CreateConversation)
 	convGroup.Get("/:user_id", convHandler.ListConversations)
+	convGroup.Post("/new", convHandler.CreateNewConversation)
 
 	// Messages inside conversation
 	convGroup.Post("/:id/messages", messageHandler.SendMessage)

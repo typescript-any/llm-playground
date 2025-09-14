@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -9,15 +12,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/typescript-any/llm-playground/internal/repository"
 	service "github.com/typescript-any/llm-playground/internal/services"
+	"github.com/valyala/fasthttp"
 )
 
 type ConversationHandler struct {
-	service *service.ConversationService
+	conversationService *service.ConversationService
+	messageService      *service.MessageService
 }
 
-func NewConversationHandler(s *service.ConversationService) *ConversationHandler {
+func NewConversationHandler(conversationService *service.ConversationService, messageService *service.MessageService) *ConversationHandler {
 	return &ConversationHandler{
-		service: s,
+		conversationService: conversationService,
+		messageService:      messageService,
 	}
 }
 
@@ -41,7 +47,7 @@ func (h *ConversationHandler) CreateConversation(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conv, err := h.service.CreateConversation(ctx, userID, body.Title)
+	conv, err := h.conversationService.CreateConversation(ctx, userID, body.Title)
 	if err == repository.ErrInternal {
 		return fiber.NewError(fiber.StatusInternalServerError, "Could not create conversation")
 	}
@@ -51,6 +57,9 @@ func (h *ConversationHandler) CreateConversation(c *fiber.Ctx) error {
 // GET /conversations/:user_id
 func (h *ConversationHandler) ListConversations(c *fiber.Ctx) error {
 	userID, err := uuid.Parse(c.Params("user_id"))
+	skip := c.QueryInt("skip", 0)
+	limit := c.QueryInt("limit", 20)
+
 	if err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid user_id"})
 	}
@@ -58,7 +67,7 @@ func (h *ConversationHandler) ListConversations(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conversations, err := h.service.ListConversations(ctx, userID)
+	conversations, err := h.conversationService.ListConversations(ctx, userID, skip, limit)
 	if err == repository.ErrNotFound {
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "no conversations found"})
 	}
@@ -67,4 +76,117 @@ func (h *ConversationHandler) ListConversations(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(conversations)
+}
+
+// POST /conversations/new
+func (h *ConversationHandler) CreateNewConversation(c *fiber.Ctx) error {
+	type reqBody struct {
+		UserID  string `json:"user_id"`
+		Content string `json:"content"`
+		Model   string `json:"model"`
+	}
+	var req reqBody
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	userID, err := uuid.Parse(req.UserID)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid user_id"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conv, err := h.conversationService.CreateNewConversation(ctx, userID, req.Content, req.Model)
+	if err == repository.ErrInternal {
+		return fiber.NewError(fiber.StatusInternalServerError, "Could not create conversation")
+	}
+
+	convID := conv.ID
+
+	stream, acc, err := h.messageService.StreamMessage(c.Context(), convID, req.Content, req.Model)
+	if err != nil {
+		return fiber.NewError(fiber.ErrInternalServerError.Code, err.Error())
+	}
+
+	// Set headers for SSE
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("Access-Control-Allow-Origin", "*") // Add CORS if needed
+
+	c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
+		// 1. Send start event
+		messageStart := MessageStart{
+			Type:      "message_start",
+			Model:     req.Model,
+			ConvID:    convID.String(),
+			CreatedAt: time.Now().Unix(),
+		}
+		h.sendEvent(w, "message_start", messageStart)
+
+		// 2. Stream content deltas
+		// Use the accumulator returned from service instead of creating new one
+		for stream.Next() {
+			chunk := stream.Current()
+			acc.AddChunk(chunk)
+
+			if len(chunk.Choices) > 0 {
+				delta := chunk.Choices[0].Delta.Content
+				if delta != "" {
+					// Send as JSON structured event
+					contentDelta := ContentDelta{
+						Type:  "content_block_delta",
+						Index: 0, // Assuming single message for now
+					}
+					contentDelta.Delta.Type = "text_delta"
+					contentDelta.Delta.Value = delta
+					h.sendEvent(w, "content_block_delta", contentDelta)
+				}
+			}
+		}
+
+		if stream.Err() != nil {
+			h.sendErrorEvent(w, stream.Err().Error())
+			return
+		}
+
+		// Save AI full message after completion
+		if len(acc.Choices) > 0 {
+			aiContent := acc.Choices[0].Message.Content
+			if _, err := h.messageService.SaveAssistantMessage(context.Background(), convID, aiContent); err != nil {
+				fmt.Fprintf(w, "event: error\ndata: %v\n\n", err)
+				w.Flush()
+				return
+			}
+		}
+
+		// 3. Send completion event
+		messageComplete := MessageComplete{
+			Type:       "message_complete",
+			StopReason: "end_turn",
+		}
+		h.sendEvent(w, "message_complete", messageComplete)
+	}))
+
+	return nil
+}
+
+// Helper function to send structured events
+func (h *ConversationHandler) sendEvent(w *bufio.Writer, eventType string, data interface{}) {
+	jsonData, _ := json.Marshal(data)
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, string(jsonData))
+	w.Flush()
+}
+
+// Helper function to send error events
+func (h *ConversationHandler) sendErrorEvent(w *bufio.Writer, errorMsg string) {
+	errorData := map[string]interface{}{
+		"type":  "error",
+		"error": errorMsg,
+	}
+	jsonData, _ := json.Marshal(errorData)
+	fmt.Fprintf(w, "event: error\ndata: %s\n\n", string(jsonData))
+	w.Flush()
 }
