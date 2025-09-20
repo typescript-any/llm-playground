@@ -22,14 +22,14 @@ func NewMessageRepo(db *pgxpool.Pool) *MessageRepo {
 }
 
 // SaveMessage inserts a message into conversation
-func (r *MessageRepo) SaveMessage(ctx context.Context, conversationID uuid.UUID, role, content string) (*models.Message, error) {
+func (r *MessageRepo) SaveMessage(ctx context.Context, params MessageSaveParams) (*models.Message, error) {
 	var exists bool
-	err := r.db.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM conversations WHERE id=$1)", conversationID).Scan(&exists)
+	err := r.db.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM conversations WHERE id=$1)", params.ConversationID).Scan(&exists)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check conversation: %w", err)
 	}
 	if !exists {
-		return nil, fmt.Errorf("conversation %s does not exist", conversationID)
+		return nil, fmt.Errorf("conversation %s does not exist", params.ConversationID)
 	}
 
 	query := `
@@ -41,7 +41,7 @@ func (r *MessageRepo) SaveMessage(ctx context.Context, conversationID uuid.UUID,
 	id := uuid.New()
 	createdAt := time.Now()
 
-	row := r.db.QueryRow(ctx, query, id, conversationID, role, content, createdAt)
+	row := r.db.QueryRow(ctx, query, id, params.ConversationID, params.Role, params.Content, createdAt)
 
 	var m models.Message
 	if err := row.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.CreatedAt); err != nil {
@@ -80,14 +80,14 @@ func (r *MessageRepo) GetMessages(ctx context.Context, convID uuid.UUID) ([]mode
 }
 
 // Get messages by conversation
-func (r *MessageRepo) GetMessagesByConversation(ctx context.Context, convID uuid.UUID, limit int) ([]models.Message, error) {
+func (r *MessageRepo) GetMessagesByConversation(ctx context.Context, params MessageListParams) ([]models.Message, error) {
 	query := `SELECT id, conversation_id, role, content, created_at
 			  FROM messages
 			  WHERE conversation_id = $1
 			  ORDER BY created_at ASC
 			  LIMIT $2 
 			  `
-	rows, err := r.db.Query(ctx, query, convID, limit)
+	rows, err := r.db.Query(ctx, query, params.ConversationID, params.Limit)
 	if err != nil {
 		return nil, ErrInternal
 	}

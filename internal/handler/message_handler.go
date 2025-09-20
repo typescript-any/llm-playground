@@ -58,7 +58,11 @@ func (h *MessageHandler) SendMessage(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.ErrBadRequest.Code, "user_id content model are required")
 	}
 
-	reply, err := h.service.SendMessage(c.Context(), convID, req.Content, req.Model)
+	reply, err := h.service.SendMessage(c.Context(), service.MessageSendParams{
+		ConversationID: convID,
+		Content:        req.Content,
+		Model:          req.Model,
+	})
 	if err != nil {
 		return err
 	}
@@ -81,7 +85,11 @@ func (h *MessageHandler) StreamMessage(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.ErrBadRequest.Code, "content and model are required")
 	}
 
-	stream, acc, err := h.service.StreamMessage(c.Context(), convID, req.Content, req.Model)
+	stream, acc, err := h.service.StreamMessage(c.Context(), service.MessageStreamParams{
+		ConversationID: convID,
+		Content:        req.Content,
+		Model:          req.Model,
+	})
 	if err != nil {
 		return fiber.NewError(fiber.ErrInternalServerError.Code, err.Error())
 	}
@@ -131,7 +139,10 @@ func (h *MessageHandler) StreamMessage(c *fiber.Ctx) error {
 		// Save AI full message after completion
 		if len(acc.Choices) > 0 {
 			aiContent := acc.Choices[0].Message.Content
-			if _, err := h.service.SaveAssistantMessage(context.Background(), convID, aiContent); err != nil {
+			if _, err := h.service.SaveAssistantMessage(context.Background(), service.MessageSaveParams{
+				ConversationID: convID,
+				Content:        aiContent,
+			}); err != nil {
 				fmt.Fprintf(w, "event: error\ndata: %v\n\n", err)
 				w.Flush()
 				return

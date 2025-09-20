@@ -49,8 +49,13 @@ func SetupApp(cfg *config.Config) (*fiber.App, *pgxpool.Pool) {
 		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
 	}))
 
+	// Health check endpoint (without /api prefix)
+	app.Get("/", func(c *fiber.Ctx) error { return c.SendString("Welcome to LLM playground API") })
 	app.Get("/healthz", func(c *fiber.Ctx) error { return c.SendString("ok") })
-	routes.RegisterConversationRoutes(app, convHandler, messageHandler)
+
+	// Create API group with /api prefix
+	api := app.Group("/api")
+	routes.RegisterConversationRoutes(api, convHandler, messageHandler)
 
 	return app, pool
 }

@@ -6,8 +6,8 @@ import (
 	"github.com/typescript-any/llm-playground/internal/middleware"
 )
 
-func RegisterConversationRoutes(app *fiber.App, convHandler *handler.ConversationHandler, messageHandler *handler.MessageHandler) {
-	convGroup := app.Group("/conversations", middleware.AuthMiddleware)
+func RegisterConversationRoutes(router fiber.Router, convHandler *handler.ConversationHandler, messageHandler *handler.MessageHandler) {
+	convGroup := router.Group("/conversations", middleware.AuthMiddleware)
 
 	// Conversations
 	convGroup.Post("/", convHandler.CreateConversation)

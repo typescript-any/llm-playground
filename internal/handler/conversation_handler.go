@@ -47,7 +47,10 @@ func (h *ConversationHandler) CreateConversation(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conv, err := h.conversationService.CreateConversation(ctx, userID, body.Title)
+	conv, err := h.conversationService.CreateConversation(ctx, service.ConversationCreateParams{
+		UserID: userID,
+		Title:  body.Title,
+	})
 	if err == repository.ErrInternal {
 		return fiber.NewError(fiber.StatusInternalServerError, "Could not create conversation")
 	}
@@ -67,7 +70,11 @@ func (h *ConversationHandler) ListConversations(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conversations, err := h.conversationService.ListConversations(ctx, userID, skip, limit)
+	conversations, err := h.conversationService.ListConversations(ctx, service.ConversationListParams{
+		UserID: userID,
+		Offset: skip,
+		Limit:  limit,
+	})
 	if err == repository.ErrNotFound {
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "no conversations found"})
 	}
@@ -98,14 +105,22 @@ func (h *ConversationHandler) CreateNewConversation(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conv, err := h.conversationService.CreateNewConversation(ctx, userID, req.Content, req.Model)
+	conv, err := h.conversationService.CreateNewConversation(ctx, service.ConversationNewParams{
+		UserID:  userID,
+		Content: req.Content,
+		Model:   req.Model,
+	})
 	if err == repository.ErrInternal {
 		return fiber.NewError(fiber.StatusInternalServerError, "Could not create conversation")
 	}
 
 	convID := conv.ID
 
-	stream, acc, err := h.messageService.StreamMessage(c.Context(), convID, req.Content, req.Model)
+	stream, acc, err := h.messageService.StreamMessage(c.Context(), service.MessageStreamParams{
+		ConversationID: convID,
+		Content:        req.Content,
+		Model:          req.Model,
+	})
 	if err != nil {
 		return fiber.NewError(fiber.ErrInternalServerError.Code, err.Error())
 	}
@@ -155,7 +170,10 @@ func (h *ConversationHandler) CreateNewConversation(c *fiber.Ctx) error {
 		// Save AI full message after completion
 		if len(acc.Choices) > 0 {
 			aiContent := acc.Choices[0].Message.Content
-			if _, err := h.messageService.SaveAssistantMessage(context.Background(), convID, aiContent); err != nil {
+			if _, err := h.messageService.SaveAssistantMessage(context.Background(), service.MessageSaveParams{
+				ConversationID: convID,
+				Content:        aiContent,
+			}); err != nil {
 				fmt.Fprintf(w, "event: error\ndata: %v\n\n", err)
 				w.Flush()
 				return

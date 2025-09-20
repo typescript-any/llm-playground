@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/typescript-any/llm-playground/internal/models"
 )
@@ -20,12 +19,12 @@ func NewConversationRepo(db *pgxpool.Pool) *ConversationRepo {
 	}
 }
 
-func (r *ConversationRepo) CreateConversation(ctx context.Context, userID uuid.UUID, title string) (models.Conversation, error) {
+func (r *ConversationRepo) CreateConversation(ctx context.Context, params ConversationCreateParams) (models.Conversation, error) {
 	var conv models.Conversation
 	query := `INSERT INTO conversations ( user_id, title)
 			  VALUES ($1, $2)
 		      RETURNING id, user_id, title, created_at`
-	err := r.db.QueryRow(ctx, query, userID, title).Scan(
+	err := r.db.QueryRow(ctx, query, params.UserID, params.Title).Scan(
 		&conv.ID, &conv.UserID, &conv.Title, &conv.CreatedAt,
 	)
 
@@ -37,14 +36,15 @@ func (r *ConversationRepo) CreateConversation(ctx context.Context, userID uuid.U
 	return conv, nil
 }
 
-func (r *ConversationRepo) GetConversationsByUser(ctx context.Context, userID uuid.UUID, offset, limit int) ([]models.Conversation, error) {
+func (r *ConversationRepo) GetConversationsByUser(ctx context.Context, params ConversationListParams) ([]models.Conversation, error) {
 	query := `SELECT id, user_id, title, created_at
 			  FROM conversations
 			  WHERE user_id = $1
 			  ORDER BY created_at DESC LIMIT $2 OFFSET $3`
 
-	rows, err := r.db.Query(ctx, query, userID, limit, offset)
+	rows, err := r.db.Query(ctx, query, params.UserID, params.Limit, params.Offset)
 	if err != nil {
+		log.Printf("Error in fetching conversations: %v", err)
 		return nil, ErrInternal
 	}
 	defer rows.Close()
@@ -53,13 +53,14 @@ func (r *ConversationRepo) GetConversationsByUser(ctx context.Context, userID uu
 	for rows.Next() {
 		var conv models.Conversation
 		if err := rows.Scan(&conv.ID, &conv.UserID, &conv.Title, &conv.CreatedAt); err != nil {
+			log.Printf("Error scanning conversation: %v", err)
 			return nil, ErrInternal
 		}
 		conversations = append(conversations, conv)
 	}
 
 	if len(conversations) == 0 {
-		return nil, ErrNotFound
+		return []models.Conversation{}, nil
 	}
 	return conversations, nil
 }

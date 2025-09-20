@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/gofiber/fiber/v2/log"
-	"github.com/google/uuid"
 	"github.com/openai/openai-go"
 	"github.com/typescript-any/llm-playground/internal/llm"
 	"github.com/typescript-any/llm-playground/internal/models"
@@ -19,15 +18,22 @@ func NewConversationService(repo *repository.ConversationRepo) *ConversationServ
 	return &ConversationService{repo: repo}
 }
 
-func (s *ConversationService) CreateConversation(ctx context.Context, userID uuid.UUID, title string) (models.Conversation, error) {
-	return s.repo.CreateConversation(ctx, userID, title)
+func (s *ConversationService) CreateConversation(ctx context.Context, params ConversationCreateParams) (models.Conversation, error) {
+	return s.repo.CreateConversation(ctx, repository.ConversationCreateParams{
+		UserID: params.UserID,
+		Title:  params.Title,
+	})
 }
 
-func (s *ConversationService) ListConversations(ctx context.Context, userID uuid.UUID, offset, limit int) ([]models.Conversation, error) {
-	return s.repo.GetConversationsByUser(ctx, userID, offset, limit)
+func (s *ConversationService) ListConversations(ctx context.Context, params ConversationListParams) ([]models.Conversation, error) {
+	return s.repo.GetConversationsByUser(ctx, repository.ConversationListParams{
+		UserID: params.UserID,
+		Offset: params.Offset,
+		Limit:  params.Limit,
+	})
 }
 
-func (s *ConversationService) CreateNewConversation(ctx context.Context, userID uuid.UUID, content string, model string) (models.Conversation, error) {
+func (s *ConversationService) CreateNewConversation(ctx context.Context, params ConversationNewParams) (models.Conversation, error) {
 	client := llm.NewClient()
 
 	prompt := `
@@ -37,7 +43,7 @@ func (s *ConversationService) CreateNewConversation(ctx context.Context, userID 
 		User: How can I format dates in React?
 		Title: Formatting Dates in React
 
-		User: ` + content + `
+		User: ` + params.Content + `
 		Title:
 		`
 
@@ -45,17 +51,23 @@ func (s *ConversationService) CreateNewConversation(ctx context.Context, userID 
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
 		},
-		Model:     defaultModel(model),
+		Model:     defaultModel(params.Model),
 		MaxTokens: openai.Int(500),
 	})
 
 	if err != nil || len(resp.Choices) == 0 {
 		log.Info("Error generating title:", err)
-		return s.repo.CreateConversation(ctx, userID, "New Conversation")
+		return s.repo.CreateConversation(ctx, repository.ConversationCreateParams{
+			UserID: params.UserID,
+			Title:  "New Conversation",
+		})
 	}
 
 	title := resp.Choices[0].Message.Content
 	log.Info("Generated title:", title)
-	return s.repo.CreateConversation(ctx, userID, title)
+	return s.repo.CreateConversation(ctx, repository.ConversationCreateParams{
+		UserID: params.UserID,
+		Title:  title,
+	})
 
 }

@@ -24,7 +24,7 @@ func main() {
 	}()
 
 	<-started
-	log.Printf("🚀 Server is running on port %s", cfg.Port)
+	log.Printf("🚀 Server is running on http://localhost:%s", cfg.Port)
 
 	app.GracefulShutdown(fiberApp, pool)
 }
